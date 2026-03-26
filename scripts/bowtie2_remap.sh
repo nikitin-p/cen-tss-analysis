@@ -1,83 +1,47 @@
 #!/usr/bin/env bash
+set -euo pipefail
 
-echo 'STARTED' at $(date)
+usage() {
+  cat <<USAGE
+Usage:
+  bowtie2_remap.sh -i INPUT_FASTQ_GZ -x INDEX_PREFIX -o OUTPUT_BAM [-t THREADS] [--extra-args '...']
+USAGE
+}
 
-SAMPLES=(
-    "h9hesc1"
-    "h9hesc2"
-    "h9hesc3"
-    "h9hesc4"
-    "k56205M1"
-    "k56205M2"
-    "k5621M1"
-    "k5621M2"
-    "k5622M1"
-    "k5622M2"
-    "hepg205M1"
-    "hepg205M2"
-    "hepg21M1"
-    "hepg21M2"
-    "hepg22M1"
-    "hepg22M2"
-    "helas305M1"
-    "helas305M2"
-    "helas31M1"
-    "helas31M2"
-    "helas32M1"
-    "helas32M2"
-    "gm1287805M1"
-    "gm1287805M2"
-    "gm128781M1"
-    "gm128781M2"
-    "gm128782M1"
-    "gm128782M2"
-    "gm128782M3"
-    "gm128782M4"
-    "gm128784M1"
-    "gm128784M2"
-    "gm128786M1"
-    "gm128786M2"
-    "gm128788M1"
-    "gm128788M2"
-    "mcf705M1"
-    "mcf705M2"
-    "mcf71M1"
-    "mcf71M2"
-    "mcf72M1"
-    "mcf72M2"
-    "mcf72M3"
-    "mcf72M4"
-    "mcf74M1"
-    "mcf74M2"
-    "mcf76M1"
-    "mcf76M2"
-    "mcf78M1"
-    "mcf78M2"
-    "luhmesDay1Rep1NETCAGE"
-    "luhmesDay1Rep2NETCAGE"
-    "luhmesDay1Rep3NETCAGE"
-    "luhmesDay3Rep1NETCAGE"
-    "luhmesDay3Rep2NETCAGE"
-    "luhmesDay3Rep3NETCAGE"
-    "luhmesDay6Rep1NETCAGE"
-    "luhmesDay6Rep2NETCAGE"
-    "luhmesDay6Rep3NETCAGE"
-)
+threads=20
+input_fastq=""
+index_prefix=""
+output_bam=""
+extra_args="-k 800 -D 1600 -R 1 --local"
 
-for SAMPLE in "${SAMPLES[@]}"
-do
-    echo "Processing ${SAMPLE}"
-
-    bowtie2 \
-        -k 800 \
-        -D 1600 \
-        -R 1 \
-        --local \
-        -x /home/pnikitin/cage/bowtie2/t2t_hor_with_strand_centromeres_ref \
-        -U /home/pnikitin/cage/bam_star_bowtie/${SAMPLE}.BAM1_remap_R1.fastq.gz \
-        -p 20 | \
-        samtools view -b - | \
-        samtools sort -@ 20 -O bam -o ${SAMPLE}_bowtie2_centromeres.bam
-
-    echo 'DONE BOWTIE2 for' ${SAMPLE} $(date)
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -i|--input-fastq) input_fastq="$2"; shift 2 ;;
+    -x|--index-prefix) index_prefix="$2"; shift 2 ;;
+    -o|--output-bam) output_bam="$2"; shift 2 ;;
+    -t|--threads) threads="$2"; shift 2 ;;
+    --extra-args) extra_args="$2"; shift 2 ;;
+    -h|--help) usage; exit 0 ;;
+    *) echo "Unknown argument: $1" >&2; usage; exit 1 ;;
+  esac
 done
+
+[[ -n "$input_fastq" ]] || { echo "Missing --input-fastq" >&2; exit 1; }
+[[ -n "$index_prefix" ]] || { echo "Missing --index-prefix" >&2; exit 1; }
+[[ -n "$output_bam" ]] || { echo "Missing --output-bam" >&2; exit 1; }
+[[ -f "$input_fastq" ]] || { echo "Input FASTQ not found: $input_fastq" >&2; exit 1; }
+
+mkdir -p "$(dirname "$output_bam")"
+
+echo "[bowtie2_remap] remapping with bowtie2: $(date)"
+# shellcheck disable=SC2086
+bowtie2 \
+  $extra_args \
+  -x "$index_prefix" \
+  -U "$input_fastq" \
+  -p "$threads" | \
+  samtools view -b - | \
+  samtools sort -@ "$threads" -O bam -o "$output_bam"
+
+samtools index -@ "$threads" "$output_bam"
+echo "[bowtie2_remap] wrote $output_bam"
