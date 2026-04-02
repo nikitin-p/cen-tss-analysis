@@ -73,6 +73,52 @@ cen-tss-analysis/
 
 ---
 
+## Testing
+
+A set of synthetic test BAMs and BEDs is provided to verify steps 1, 3, 4, 5, and 6
+without needing real CAGE data or a bowtie2 index.
+
+### Generate test data
+
+```bash
+python tests/make_test_data.py
+```
+
+Requires `pysam` and `samtools`. Writes the following to `tests/data/`:
+
+| File | Purpose |
+| ---- | ------- |
+| `centromere.bed` | `chr1:500-2000` — centromere regions for step 1 |
+| `transposon.bed` | `HOR_chr1:1000-2000` — transposon regions for step 5 |
+| `step1_input.bam` | 5 centromeric + 3 unmapped + 4 off-target reads (STAR-like) |
+| `step3_input.bam` | 3 reads that pass 5'-G filter + 4 that fail |
+| `step4_input.bam` | 2 pass XM filter, 2 fail, 1 dropped (no XM tag) |
+| `step5_input.bam` | 2 outside transposon (pass) + 2 overlapping (fail) |
+
+### Run tests
+
+```bash
+bash tests/run_tests.sh
+```
+
+Requires `samtools`, `bedtools`, `bamCoverage` (deepTools). Steps 2 (bowtie2 remap)
+is not tested as it requires a bowtie2 index.
+
+Expected output:
+
+```text
+[PASS] reads in FASTQ (cen+unmapped)              expected 8, got 8
+[PASS] reads passing 5'-G filter                  expected 3, got 3
+[PASS] reads passing XM filter                    expected 2, got 2
+[PASS] reads passing transposon filter            expected 2, got 2
+[PASS] step6_output.fwd.bw                        exists and non-empty
+[PASS] step6_output.rev.bw                        exists and non-empty
+────────────────────────────────────────────────────────
+Results: 6 / 6 passed
+```
+
+---
+
 ## Dependencies
 
 | Tool | Version | Notes |
