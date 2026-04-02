@@ -134,6 +134,32 @@ n=$(bam_count "$OUT/step5_output.bam")
 check "reads passing transposon filter" 2 "$n"
 echo
 
+# ── Step 6: bamcoverage_5p.sh ─────────────────────────────────────────────────
+# Input : step5_output.bam (2 reads: 1 forward, 1 reverse)
+# Expect: step6_output.fwd.bw and step6_output.rev.bw created
+
+echo "Step 6 — bamcoverage_5p.sh"
+bash "$SCRIPTS/bamcoverage_5p.sh" \
+    -i "$OUT/step5_output.bam" \
+    -o "$OUT/step6_output" \
+    -t 4
+
+check_file() {
+    local label="$1"
+    local path="$2"
+    if [[ -f "$path" && -s "$path" ]]; then
+        printf "  [PASS] %-45s exists and non-empty\n" "$label"
+        ((pass++)) || true
+    else
+        printf "  [FAIL] %-45s missing or empty\n" "$label"
+        ((fail++)) || true
+    fi
+}
+
+check_file "step6_output.fwd.bw" "$OUT/step6_output.fwd.bw"
+check_file "step6_output.rev.bw" "$OUT/step6_output.rev.bw"
+echo
+
 # ── summary ───────────────────────────────────────────────────────────────────
 
 total=$((pass + fail))
