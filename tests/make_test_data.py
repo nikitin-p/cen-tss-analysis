@@ -117,6 +117,21 @@ def aln(bam, name, ref_id, pos, cigar, seq, *, is_reverse=False,
     return a
 
 
+# ── Fake bowtie2 index ────────────────────────────────────────────────────────
+
+def make_fake_bowtie2_index():
+    """
+    Create a zero-byte .1.bt2 file so run_pipeline.sh passes its index
+    existence check.  The bowtie2 stub in tests/stubs/bowtie2 ignores the
+    index entirely, so the file just needs to exist.
+    """
+    index_dir = os.path.join(OUT_DIR, "fake_index")
+    os.makedirs(index_dir, exist_ok=True)
+    path = os.path.join(index_dir, "ref.1.bt2")
+    open(path, "w").close()
+    print(f"  wrote {path}")
+
+
 # ── BED files ─────────────────────────────────────────────────────────────────
 
 def make_centromere_bed():
@@ -397,6 +412,9 @@ def main():
     make_step3_input()
     make_step4_input()
     make_step5_input()
+    print()
+    print("Bowtie2 index stub:")
+    make_fake_bowtie2_index()
     print()
     print("Done.")
 

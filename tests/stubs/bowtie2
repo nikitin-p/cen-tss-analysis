@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+# Stub bowtie2 for pipeline integration testing.
+#
+# Ignores all arguments (index, FASTQ input, flags) and writes the
+# pre-built tests/data/step3_input.bam as SAM to stdout.
+#
+# This feeds pyselectal.py (step 3) with exactly the reads designed to
+# test the 5'-G filter: 3 PASS reads + 4 FAIL reads.  Steps 3 and 4
+# then run their real filtering code, so the pipeline test verifies
+# the full orchestration AND the real filtering behaviour.
+
+STUB_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+DATA_DIR="$STUB_DIR/../data"
+
+samtools view -h "$DATA_DIR/step3_input.bam"

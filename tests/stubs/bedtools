@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+# Stub bedtools for pipeline integration testing.
+#
+# Handles the only subcommand used by this pipeline:
+#   bedtools intersect [-v] -abam INPUT -b BED
+#
+# Behaviour: writes the -abam INPUT BAM to stdout unchanged.
+# No actual intersection is performed — this tests the pipeline
+# orchestration (argument passing, file flow) not bedtools itself.
+# bedtools filtering is covered by tests/run_tests.sh (step 5).
+
+abam=""
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -abam) abam="$2"; shift 2 ;;
+        *)     shift ;;
+    esac
+done
+
+if [[ -n "$abam" && -f "$abam" ]]; then
+    samtools view -b "$abam"
+else
+    echo "bedtools stub: -abam not found or file missing" >&2
+    exit 1
+fi

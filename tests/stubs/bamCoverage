@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+# Stub bamCoverage (deepTools) for pipeline integration testing.
+#
+# Finds the -o / --outFileName argument and writes a minimal non-empty
+# placeholder file.  The file contents are not valid bigWig, but the
+# pipeline only checks that the file exists and is non-empty.
+#
+# deepTools bigWig validation is not the goal here; step 6 is covered
+# separately in tests/run_tests.sh when bamCoverage is available.
+
+output=""
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -o|--outFileName) output="$2"; shift 2 ;;
+        *) shift ;;
+    esac
+done
+
+if [[ -n "$output" ]]; then
+    printf 'bigwig-stub\n' > "$output"
+else
+    echo "bamCoverage stub: -o not found" >&2
+    exit 1
+fi
