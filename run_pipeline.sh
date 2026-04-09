@@ -68,7 +68,9 @@ SAMPLE_LOG=""   # set to per-sample log path inside process_sample
 log() {
   local msg="[$(date '+%F %T')] $*"
   echo "$msg"
-  [[ -n "${SAMPLE_LOG:-}" ]] && echo "$msg" >> "$SAMPLE_LOG"
+  if [[ -n "${SAMPLE_LOG:-}" ]]; then
+    echo "$msg" >> "$SAMPLE_LOG"
+  fi
 }
 
 err() { echo "ERROR: $*" >&2; exit 1; }
@@ -166,8 +168,10 @@ process_sample() {
   local input_bam="$1"
   local sample="$2"
   local sdir="$OUTDIR/$sample"
-  SAMPLE_LOG="$sdir/${sample}.log"
-  mkdir -p "$sdir"
+  if [[ "$DRY_RUN" -eq 0 ]]; then
+    SAMPLE_LOG="$sdir/${sample}.log"
+    mkdir -p "$sdir"
+  fi
 
   log "=== Sample: $sample ==="
   log "    input:  $input_bam"
