@@ -24,7 +24,17 @@ Expected outcomes after each step (used by run_tests.sh):
     step 1  → 8 reads in output FASTQ  (5 centromeric + 3 unmapped)
     step 3  → 3 reads in output BAM    (2 fwd + 1 rev with exactly 1 5'-soft-clipped G)
     step 4  → 2 reads in output BAM    (XM/readlen <= 0.10)
-    step 5  → 2 reads in output BAM    (outside transposon HOR_chr1:1000-2000)
+    step 5  → 3 reads in output BAM    (not overlapping transposon HOR_chr1:1000-2000)
+
+Coordinate conventions
+----------------------
+All BAM positions are 0-based (pysam reference_start).
+BED files use 0-based half-open intervals [start, end).
+bedtools intersect -abam: uses mapped region only (soft-clips excluded).
+
+For a read with CIGAR 1S+49M at reference_start=X:
+    mapped region = [X, X+49)
+    soft-clip base = X-1 on the reference (not counted by bedtools)
 """
 
 import os
@@ -178,20 +188,21 @@ def make_step1_input():
 # Tests pyselectal.py -n 1 -m 1 -x G  (exactly 1 5'-soft-clipped G).
 #
 # PASS criteria:
-#   Forward: CIGAR starts with (SOFT,1), first base of seq == 'G'
-#   Reverse: CIGAR ends   with (SOFT,1), last  base of seq == 'C' (revcomp G)
+#   Forward: CIGAR starts with (SOFT,1), first base of query seq == 'G'
+#   Reverse: CIGAR ends   with (SOFT,1), last  base of query seq == 'C'
+#            (the soft-clipped base on the reverse strand is the reverse
+#            complement of G, i.e. C; pysam stores the read sequence in its
+#            original orientation before reverse-complementing)
 #
-# ┌───────────────────────┬──────────────┬───────────────────────────────────┐
-# │ read name             │ expected     │ reason                            │
-# ├───────────────────────┼──────────────┼───────────────────────────────────┤
-# │ fwd_pass_1G           │ PASS         │ 1S+50M, first base G              │
-# │ fwd_pass_2G           │ PASS         │ 1S+50M, first base G              │
-# │ rev_pass_1C           │ PASS         │ 50M+1S, last base C (revcomp G)   │
-# │ fwd_fail_notG         │ FAIL         │ 1S+50M but first base is A        │
-# │ fwd_fail_2Sclip       │ FAIL         │ 2S+49M (2-bp soft-clip)           │
-# │ fwd_fail_noSclip      │ FAIL         │ 51M (no soft-clip)                │
-# │ rev_fail_notC         │ FAIL         │ 50M+1S but last base is A, not C  │
-# └───────────────────────┴──────────────┴───────────────────────────────────┘
+# read name          expected  reason
+# -----------------  --------  ------------------------------------------------
+# fwd_pass_1G        PASS      1S+50M, first base G  — canonical CAGE fwd read
+# fwd_pass_2G        PASS      1S+50M, first base G  — second fwd example
+# rev_pass_1C        PASS      50M+1S, last base C   — canonical CAGE rev read
+# fwd_fail_notG      FAIL      1S+50M but first base is A, not G
+# fwd_fail_2Sclip    FAIL      2S+49M — two-base soft-clip; -n 1 -m 1 requires exactly 1
+# fwd_fail_noSclip   FAIL      51M — no soft-clip at all
+# rev_fail_notC      FAIL      50M+1S but last base is A, not C
 
 def make_step3_input():
     header = {
@@ -252,15 +263,20 @@ def make_step3_input():
 # Tests xm_filter.sh: keep reads where XM / read_length <= 0.10.
 # All reads are 30 bp with CIGAR 1S+29M (already TSS-selected).
 #
-# ┌────────────────────────┬──────────┬─────────────────────────────────────┐
-# │ read name              │ expected │ reason                              │
-# ├────────────────────────┼──────────┼─────────────────────────────────────┤
-# │ xm_pass_0mm            │ PASS     │ XM=0  (0/30 = 0.000)               │
-# │ xm_pass_3mm_boundary   │ PASS     │ XM=3  (3/30 = 0.100, at boundary)  │
-# │ xm_fail_4mm            │ FAIL     │ XM=4  (4/30 = 0.133)               │
-# │ xm_fail_10mm           │ FAIL     │ XM=10 (10/30 = 0.333)              │
-# │ xm_drop_noXM           │ FAIL     │ no XM tag → awk skips silently     │
-# └────────────────────────┴──────────┴─────────────────────────────────────┘
+# xm_filter.sh computes: mismatch_fraction = XM / len(SEQ)
+# Threshold: fraction must be <= (1 - min_match_frac) = 1 - 0.90 = 0.10
+#
+# read name             expected  reason
+# --------------------  --------  ----------------------------------------------
+# xm_pass_0mm           PASS      XM=0  (0/30  = 0.000, no mismatches)
+# xm_pass_3mm_boundary  PASS      XM=3  (3/30  = 0.100, exactly at 10% limit)
+# xm_fail_4mm           FAIL      XM=4  (4/30  = 0.133, just over 10%)
+# xm_fail_10mm          FAIL      XM=10 (10/30 = 0.333, well over 10%)
+# xm_drop_noXM          FAIL      no XM tag — awk never matches; read dropped
+#
+# Note: xm_drop_noXM is silently dropped (not explicitly failed). Reads without
+# XM tag arise when a mapper does not output XM (e.g. some bowtie2 modes). The
+# pipeline currently treats them as non-passing, same as high-mismatch reads.
 
 def make_step4_input():
     header = {
@@ -299,14 +315,24 @@ def make_step4_input():
 # Tests filter_transposons.sh: remove reads overlapping transposon.bed
 # (HOR_chr1:1000-2000).  All reads are 50 bp with CIGAR 1S+49M.
 #
-# ┌──────────────────────────┬──────────┬──────────────────────────────────────┐
-# │ read name                │ expected │ reason                               │
-# ├──────────────────────────┼──────────┼──────────────────────────────────────┤
-# │ transp_pass_upstream     │ PASS     │ pos 500-549, before transposon       │
-# │ transp_pass_downstream   │ PASS     │ pos 2500-2549, after transposon      │
-# │ transp_fail_inside       │ FAIL     │ pos 1100-1149, inside 1000-2000      │
-# │ transp_fail_overlap_start│ FAIL     │ pos 970-1019, overlaps TE start      │
-# └──────────────────────────┴──────────┴──────────────────────────────────────┘
+# Coordinate arithmetic for CIGAR 1S+49M at reference_start=X:
+#   soft-clip occupies one query base but NO reference position
+#   mapped region = [X, X+49)  (0-based half-open, as bedtools sees it)
+#
+# transposon BED: HOR_chr1  1000  2000  → interval [1000, 2000) 0-based
+#
+# read name               expected  strand  mapped interval  overlap with [1000,2000)?
+# ----------------------  --------  ------  ---------------  -------------------------
+# transp_pass_upstream    PASS      fwd     [500,  549)      no  — entirely before 1000
+# transp_pass_downstream  PASS      fwd     [2500, 2549)     no  — entirely after 2000
+# transp_pass_boundary    PASS      rev     [2000, 2049)     no  — starts exactly at 2000
+# transp_fail_inside      FAIL      fwd     [1100, 1149)     yes — fully inside
+# transp_fail_overlap_start FAIL    fwd     [970,  1019)     yes — overlaps start [970,1000)∩[1000,2000)
+# transp_fail_overlap_end FAIL      fwd     [1970, 2019)     yes — overlaps end   [1970,2000)
+#
+# transp_pass_boundary uses is_reverse=True so that step 5 output contains both
+# forward and reverse reads — required for step 6 to produce non-empty .fwd.bw
+# and .rev.bw bigWigs.
 
 def make_step5_input():
     header = {
@@ -314,24 +340,43 @@ def make_step5_input():
         "SQ": [{"SN": "HOR_chr1", "LN": 100000}],
         "PG": [{"ID": "bowtie2", "PN": "bowtie2", "VN": "2.5.1"}],
     }
-    SEQ50 = "G" + "A" * 49   # 50 bp
+    # All reads: 50 bp, CIGAR 1S+49M (already TSS-selected).
+    # Forward: seq = G + A*49 (5'-G soft-clip)
+    # Reverse: seq = A*49 + C (5'-G soft-clip stored as C on reverse strand)
+    SEQ_FWD = "G" + "A" * 49
+    SEQ_REV = "A" * 49 + "C"
 
     def build(bam):
+        # PASS: mapped [500, 549) — entirely before transposon [1000, 2000)
         bam.write(aln(bam, "transp_pass_upstream", 0, 500,
-            cigar=[(SOFT, 1), (MATCH, 49)], seq=SEQ50,
+            cigar=[(SOFT, 1), (MATCH, 49)], seq=SEQ_FWD,
             tags=[("XM", 0), ("AS", 55)]))
 
+        # PASS: mapped [2500, 2549) — entirely after transposon
         bam.write(aln(bam, "transp_pass_downstream", 0, 2500,
-            cigar=[(SOFT, 1), (MATCH, 49)], seq=SEQ50,
+            cigar=[(SOFT, 1), (MATCH, 49)], seq=SEQ_FWD,
             tags=[("XM", 0), ("AS", 55)]))
 
+        # PASS: mapped [2000, 2049) — starts exactly at transposon end (no overlap)
+        # is_reverse=True so step 6 gets at least one reverse-strand read for rev.bw
+        bam.write(aln(bam, "transp_pass_boundary", 0, 2000,
+            cigar=[(MATCH, 49), (SOFT, 1)], seq=SEQ_REV,
+            is_reverse=True,
+            tags=[("XM", 0), ("AS", 55)]))
+
+        # FAIL: mapped [1100, 1149) — fully inside transposon
         bam.write(aln(bam, "transp_fail_inside", 0, 1100,
-            cigar=[(SOFT, 1), (MATCH, 49)], seq=SEQ50,
+            cigar=[(SOFT, 1), (MATCH, 49)], seq=SEQ_FWD,
             tags=[("XM", 0), ("AS", 55)]))
 
-        # Position 970: mapped region is 970-1018 (49 M bases), overlaps TE at 1000
+        # FAIL: mapped [970, 1019) — overlaps transposon start [1000, 1019)
         bam.write(aln(bam, "transp_fail_overlap_start", 0, 970,
-            cigar=[(SOFT, 1), (MATCH, 49)], seq=SEQ50,
+            cigar=[(SOFT, 1), (MATCH, 49)], seq=SEQ_FWD,
+            tags=[("XM", 0), ("AS", 55)]))
+
+        # FAIL: mapped [1970, 2019) — overlaps transposon end [1970, 2000)
+        bam.write(aln(bam, "transp_fail_overlap_end", 0, 1970,
+            cigar=[(SOFT, 1), (MATCH, 49)], seq=SEQ_FWD,
             tags=[("XM", 0), ("AS", 55)]))
 
     write_bam("step5_input.bam", header, build)
